@@ -126,7 +126,48 @@ DemuxStatus MmtTlvDemuxer::demux(Common::ReadStream& stream) {
         }
         else {
             auto mmtStat = statistics.getMmtStat(mmtp.packetId);
-            if (mmtStat->lastPacketSequenceNumber + 1 != mmtp.packetSequenceNumber) {
+            bool sequenceDrop = (mmtStat->lastPacketSequenceNumber + 1 != mmtp.packetSequenceNumber);
+
+            // Some broadcasts interleave two independent packet_sequence_number series
+            // on the same subtitle packet_id. Track each series separately so that
+            // switching between them is not reported as a drop.
+            if (sequenceDrop && mmtStat->assetType == AssetType::stpp) {
+                constexpr uint32_t SERIES_GAP_THRESHOLD = 1000;
+                constexpr size_t MAX_ALT_SERIES = 4;
+                auto& alt = mmtStat->altPacketSequenceNumbers;
+                bool matched = false;
+                for (auto& s : alt) {
+                    if (static_cast<uint32_t>(s + 1) == mmtp.packetSequenceNumber) {
+                        s = mmtStat->lastPacketSequenceNumber;
+                        matched = true;
+                        break;
+                    }
+                }
+                if (matched) {
+                    sequenceDrop = false;
+                }
+                else {
+                    uint32_t forward = mmtp.packetSequenceNumber - mmtStat->lastPacketSequenceNumber;
+                    bool nearAlt = false;
+                    for (auto s : alt) {
+                        uint32_t d = mmtp.packetSequenceNumber - s;
+                        if (d != 0 && d < SERIES_GAP_THRESHOLD) {
+                            nearAlt = true;
+                            break;
+                        }
+                    }
+                    if (forward >= SERIES_GAP_THRESHOLD && !nearAlt) {
+                        // start of another series: remember the current one, no drop
+                        alt.push_back(mmtStat->lastPacketSequenceNumber);
+                        if (alt.size() > MAX_ALT_SERIES) {
+                            alt.erase(alt.begin());
+                        }
+                        sequenceDrop = false;
+                    }
+                }
+            }
+
+            if (sequenceDrop) {
                 mmtStat->drop++;
 
                 auto mmtStream = getStream(mmtp.packetId);

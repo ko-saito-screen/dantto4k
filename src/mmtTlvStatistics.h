@@ -2,6 +2,7 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <vector>
 
 namespace MmtTlv {
 
@@ -21,6 +22,8 @@ public:
 		uint16_t packetId{0};
 		std::string name;
 		uint32_t lastPacketSequenceNumber{0};
+		// Other packet_sequence_number series interleaved on the same packet_id (subtitles only)
+		std::vector<uint32_t> altPacketSequenceNumbers;
 		uint32_t assetType{0};
 		uint64_t count{0};
 		uint64_t drop{0};

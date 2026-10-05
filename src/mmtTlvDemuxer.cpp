@@ -135,28 +135,24 @@ DemuxStatus MmtTlvDemuxer::demux(Common::ReadStream& stream) {
                 constexpr uint32_t SERIES_GAP_THRESHOLD = 1000;
                 constexpr size_t MAX_ALT_SERIES = 4;
                 auto& alt = mmtStat->altPacketSequenceNumbers;
-                bool matched = false;
+                bool switched = false;
+                // Returning to a previously seen series. The broadcaster's switcher may
+                // suppress a few packets of the inactive series while another one is on
+                // air, so a small forward skip on a series switch is not a drop.
                 for (auto& s : alt) {
-                    if (static_cast<uint32_t>(s + 1) == mmtp.packetSequenceNumber) {
+                    uint32_t d = mmtp.packetSequenceNumber - s;
+                    if (d != 0 && d < SERIES_GAP_THRESHOLD) {
                         s = mmtStat->lastPacketSequenceNumber;
-                        matched = true;
+                        switched = true;
                         break;
                     }
                 }
-                if (matched) {
+                if (switched) {
                     sequenceDrop = false;
                 }
                 else {
                     uint32_t forward = mmtp.packetSequenceNumber - mmtStat->lastPacketSequenceNumber;
-                    bool nearAlt = false;
-                    for (auto s : alt) {
-                        uint32_t d = mmtp.packetSequenceNumber - s;
-                        if (d != 0 && d < SERIES_GAP_THRESHOLD) {
-                            nearAlt = true;
-                            break;
-                        }
-                    }
-                    if (forward >= SERIES_GAP_THRESHOLD && !nearAlt) {
+                    if (forward >= SERIES_GAP_THRESHOLD) {
                         // start of another series: remember the current one, no drop
                         alt.push_back(mmtStat->lastPacketSequenceNumber);
                         if (alt.size() > MAX_ALT_SERIES) {
